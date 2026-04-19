@@ -1,29 +1,32 @@
-# knowyourconst
+# constituency
 
 A new Flutter project.
-2. Configure Firebase:
 
 ## Getting Started
+
+2. Configure Firebase:
    - Add `android/app/google-services.json`
    - Add `ios/Runner/GoogleService-Info.plist`
    - Ensure the Firebase project has Auth, Firestore, Storage, and Analytics enabled
 
-This project is a starting point for a Flutter application.
 3. Install dependencies:
 
-A few resources to get you started if this is your first Flutter project:
 ```bash
 flutter pub get
 ```
 
+A few resources to get you started if this is your first Flutter project:
+
 - [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
 - [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
 - [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-## Local Development
 
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+
+## Local Development
+
 ```bash
 flutter analyze
 flutter test
