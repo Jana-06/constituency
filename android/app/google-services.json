@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "893357478385",
+    "firebase_url": "https://hits-constituency-app-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "hits-constituency-app",
+    "storage_bucket": "hits-constituency-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:893357478385:android:25eb746115406b4f973450",
+        "android_client_info": {
+          "package_name": "com.example.knowyourconst"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "893357478385-i0kfcvvotup2iv672jmgs6d0838d0hqs.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.knowyourconst",
+            "certificate_hash": "8e10e5d9293a4c8cb550fb846baecf405dd6c319"
+          }
+        },
+        {
+          "client_id": "893357478385-prq3o5hta1d338h8lhhk31bd9h558clm.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB-3GkuIfOKJPXaxn0-G_QCidYX6Ho-JaM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "893357478385-prq3o5hta1d338h8lhhk31bd9h558clm.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "893357478385-vped01jmceonc42m5th6q2n3s11k8j9o.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.knowyourconst"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

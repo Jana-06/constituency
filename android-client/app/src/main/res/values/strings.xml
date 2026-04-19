@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HITS Constituency</string>
+    <string name="hits_title">HITS</string>
+    <string name="logo_desc">College logo</string>
+    <string name="retry">Retry</string>
+    <string name="open_poll">Open Poll</string>
+    <string name="vote">Vote</string>
+</resources>
+

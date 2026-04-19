@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function hasUserDoc() {
+      return isSignedIn() &&
+          exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return hasUserDoc() && currentUser().data.role == 'admin';
+    }
+
+    function isNotBanned() {
+      return !hasUserDoc() || currentUser().data.isBanned != true;
+    }
+
+    function onlyVotesChanged() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(['votes']);
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+
+      allow create: if isOwner(uid) &&
+          request.resource.data.uid == uid &&
+          request.resource.data.role == 'user';
+
+      allow update: if (
+            isOwner(uid) &&
+            request.resource.data.uid == resource.data.uid &&
+            request.resource.data.role == resource.data.role &&
+            request.resource.data.isBanned == resource.data.isBanned
+          ) || isAdmin();
+
+      allow delete: if false;
+    }
+
+    match /polls/{pollId} {
+      allow read: if isSignedIn();
+
+      allow create, delete: if isAdmin();
+
+      // Users can update only the votes map; admins can update everything.
+      allow update: if isAdmin() || (isSignedIn() && isNotBanned() && onlyVotesChanged());
+    }
+
+    match /parties/{partyId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /candidates/{candidateId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /candidate_sync_status/{statusId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /messages/{roomId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+
+      match /items/{messageId} {
+        allow read: if isSignedIn();
+
+        allow create: if isSignedIn() &&
+            isNotBanned() &&
+            request.resource.data.uid == request.auth.uid &&
+            request.resource.data.isDeleted == false;
+
+        // Owner can soft-delete own message by toggling only isDeleted -> true.
+        allow update: if isAdmin() || (
+          isSignedIn() &&
+          resource.data.uid == request.auth.uid &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['isDeleted']) &&
+          request.resource.data.isDeleted == true
+        );
+
+        allow delete: if isAdmin();
+      }
+    }
+  }
+}

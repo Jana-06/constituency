@@ -1,0 +1,68 @@
+type User @table {
+  username: String!
+  email: String!
+  createdAt: Timestamp!
+  displayName: String
+  photoUrl: String
+  constituency: String
+}
+
+type PoliticalParty @table {
+  name: String!
+  createdAt: Timestamp!
+  abbreviation: String
+  manifesto: String
+  description: String
+  website: String
+}
+
+type Insight @table {
+  content: String!
+  createdAt: Timestamp!
+  title: String
+  author: User
+  relatedParty: PoliticalParty
+}
+
+type Comment @table {
+  content: String!
+  createdAt: Timestamp!
+  author: User
+  insight: Insight
+}
+
+type Topic @table {
+  name: String!
+  createdAt: Timestamp!
+  description: String
+}
+
+type InsightLike @table(key: ["user", "insight"]) {
+  user: User!
+  insight: Insight!
+  isLiked: Boolean! # True for like, False for dislike
+}
+
+type FollowsParty @table(key: ["user", "party"]) {
+  user: User!
+  party: PoliticalParty!
+}
+
+type FollowsTopic @table(key: ["user", "topic"]) {
+  user: User!
+  topic: Topic!
+}
+
+type ReportedInsight @table(key: ["reporter", "insight"]) {
+  reporter: User!
+  insight: Insight!
+  reason: String
+  reportedAt: Timestamp!
+}
+
+type ReportedComment @table(key: ["reporter", "comment"]) {
+  reporter: User!
+  comment: Comment!
+  reason: String
+  reportedAt: Timestamp!
+}
