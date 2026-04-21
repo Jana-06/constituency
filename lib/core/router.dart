@@ -11,14 +11,23 @@ import '../features/candidates/ui/screens/candidate_list_screen.dart';
 import '../features/shared/ui/main_scaffold.dart';
 import '../shared/widgets/in_app_webview_screen.dart';
 
+final startupGateProvider = FutureProvider<void>((ref) async {
+  await Future<void>.delayed(const Duration(seconds: 2));
+});
+
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
+  final startupGate = ref.watch(startupGateProvider);
 
   return GoRouter(
     initialLocation: '/splash',
     redirect: (context, state) {
       final path = state.matchedLocation;
       final isAuthRoute = path == '/sign-in' || path == '/sign-up';
+
+      if (startupGate.isLoading) {
+        return path == '/splash' ? null : '/splash';
+      }
 
       if (authState.isLoading) {
         return path == '/splash' ? null : '/splash';
@@ -41,7 +50,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
-      GoRoute(path: '/', redirect: (_, __) => '/parties'),
+      GoRoute(path: '/', redirect: (context, state) => '/parties'),
       GoRoute(path: '/splash', builder: (context, state) => const SplashScreen()),
       GoRoute(path: '/sign-in', builder: (context, state) => const SignInScreen()),
       GoRoute(path: '/sign-up', builder: (context, state) => const SignUpScreen()),

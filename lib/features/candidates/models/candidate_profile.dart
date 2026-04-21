@@ -20,6 +20,8 @@ class CandidateProfile {
     required this.goodThings,
     required this.affidavitSummary,
     required this.accentColor,
+    this.symbolName,
+    this.symbolAssetPath,
     this.partyFlagUrl,
     this.lastUpdated,
   });
@@ -41,6 +43,8 @@ class CandidateProfile {
   final List<String> goodThings;
   final String affidavitSummary;
   final Color accentColor;
+  final String? symbolName;
+  final String? symbolAssetPath;
   final String? partyFlagUrl;
   final DateTime? lastUpdated;
 
@@ -77,6 +81,8 @@ class CandidateProfile {
           .toList(growable: false),
       affidavitSummary: (data['affidavitSummary'] as String?) ?? 'Affidavit information is sourced from public election references.',
       accentColor: accentColor,
+      symbolName: data['symbolName'] as String? ?? data['symbol'] as String?,
+      symbolAssetPath: data['symbolAssetPath'] as String?,
       partyFlagUrl: data['partyFlagUrl'] as String?,
       lastUpdated: updated,
     );

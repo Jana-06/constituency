@@ -14,7 +14,25 @@ if (admin.apps.length === 0) {
 
 const CANDIDATES_COLLECTION = "candidates";
 const CANDIDATE_SYNC_STATUS_COLLECTION = "candidate_sync_status";
+const CANDIDATE_SYMBOL_GAPS_COLLECTION = "candidate_symbol_gaps";
+const EROLLS_AC_LIST_URL = "https://erolls.tn.gov.in/acwithcandidate_tnla2026/AC_List.aspx";
+const EROLLS_FORM7A_URL = "https://erolls.tn.gov.in/acwithcandidate_tnla2026/Form7A.aspx";
 const STALE_MINUTES = 180;
+
+const symbolAssetByNormalizedName: Record<string, string> = {
+  "rising sun": "assets/symbols/Rising sun.png",
+  "two leaves": "assets/symbols/Two leaves.png",
+  "farmer carrying plough": "assets/symbols/Farmer Carrying Plough.png",
+  "camera": "assets/symbols/Camera.png",
+  "whistle": "assets/symbols/Whistle.png",
+  "elephant": "assets/symbols/Elephant.png",
+};
+
+type ErollsConstituencyLink = {
+  constituency: string;
+  eventTarget: string;
+  eventArgument: string;
+};
 
 type ScrapedCandidate = {
   name: string;
@@ -90,6 +108,55 @@ function extractParty(text: string): {id: string; name: string} {
 
 function toAbbreviation(partyId: string): string {
   return partyAbbreviationMap[partyId] ?? partyId.toUpperCase();
+}
+
+function normalizeSymbolName(value: string): string {
+  return value.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+}
+
+function resolveSymbolAssetPath(symbolName?: string): string | null {
+  if (!symbolName || symbolName.trim().length === 0) {
+    return null;
+  }
+  const key = normalizeSymbolName(symbolName);
+  return symbolAssetByNormalizedName[key] ?? null;
+}
+
+function getHiddenFields($: cheerio.CheerioAPI): Record<string, string> {
+  const fields: Record<string, string> = {};
+  $("input[type='hidden'][name]").each((_, element) => {
+    const name = ($(element).attr("name") ?? "").trim();
+    if (!name) {
+      return;
+    }
+    fields[name] = ($(element).attr("value") ?? "").trim();
+  });
+  return fields;
+}
+
+function getConstituencyLinksFromAcList($: cheerio.CheerioAPI): ErollsConstituencyLink[] {
+  const links: ErollsConstituencyLink[] = [];
+  const dedupe = new Set<string>();
+
+  $("a[id*='lnk_Pc_Name']").each((_, element) => {
+    const constituency = $(element).text().replace(/\s+/g, " ").trim();
+    const href = ($(element).attr("href") ?? "").trim();
+    const match = href.match(/__doPostBack\('([^']+)'\s*,\s*'([^']*)'\)/i);
+    if (!constituency || !match) {
+      return;
+    }
+
+    const eventTarget = match[1].trim();
+    const eventArgument = match[2].trim();
+    const key = `${normalizeKey(constituency)}:${eventTarget}`;
+    if (dedupe.has(key)) {
+      return;
+    }
+    dedupe.add(key);
+    links.push({constituency, eventTarget, eventArgument});
+  });
+
+  return links;
 }
 
 function extractSymbol(text: string): string | undefined {
@@ -242,6 +309,125 @@ async function scrapeMynetaCandidates(constituency: string): Promise<ScrapedCand
   return candidates.slice(0, 40);
 }
 
+async function scrapeErollsCandidatesByLink(
+  link: ErollsConstituencyLink,
+  hiddenFields: Record<string, string>,
+  cookieHeader: string,
+): Promise<{constituency: string; candidates: ScrapedCandidate[]}> {
+  const payload: Record<string, string> = {
+    ...hiddenFields,
+    __EVENTTARGET: link.eventTarget,
+    __EVENTARGUMENT: link.eventArgument,
+    __LASTFOCUS: "",
+    __ASYNCPOST: "false",
+  };
+
+  const response = await axios.post<string>(EROLLS_AC_LIST_URL, new URLSearchParams(payload).toString(), {
+    timeout: 30000,
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Accept-Language": "en-IN,en;q=0.9",
+      Cookie: cookieHeader,
+      Referer: EROLLS_AC_LIST_URL,
+    },
+  });
+
+  const $ = cheerio.load(response.data);
+  const constituencyName = $("span[id$='lb_ac_name']").first().text().replace(/\s+/g, " ").trim() || link.constituency;
+  const candidates: ScrapedCandidate[] = [];
+  const dedupe = new Set<string>();
+
+  $("table").each((_, table) => {
+    const headers = $(table).find("th").map((__, th) => $(th).text().replace(/\s+/g, " ").trim().toLowerCase()).get();
+    if (!(headers.some((item) => item.includes("party affiliation")) && headers.some((item) => item.includes("symbol")))) {
+      return;
+    }
+    $(table).find("tr").each((__, row) => {
+      const cells = $(row).find("td");
+      if (cells.length < 4) {
+        return;
+      }
+
+      const name = $(cells[1]).text().replace(/\s+/g, " ").trim();
+      const partyNameRaw = $(cells[2]).text().replace(/\s+/g, " ").trim();
+      const symbolNameRaw = $(cells[3]).text().replace(/\s+/g, " ").trim();
+      if (!name) {
+        return;
+      }
+
+      const party = extractParty(partyNameRaw);
+      const key = `${normalizeKey(name)}:${party.id}:${normalizeKey(symbolNameRaw)}`;
+      if (dedupe.has(key)) {
+        return;
+      }
+      dedupe.add(key);
+
+      candidates.push({
+        name,
+        partyName: partyNameRaw || party.name,
+        partyId: party.id,
+        partyAbbreviation: toAbbreviation(party.id),
+        symbol: symbolNameRaw || undefined,
+        sourceUrl: `${EROLLS_FORM7A_URL}?ac=${encodeURIComponent(constituencyName)}`,
+        affidavitUrl: EROLLS_FORM7A_URL,
+        goodThingsUrl: EROLLS_FORM7A_URL,
+      });
+    });
+
+    return false;
+  });
+
+  return {constituency: constituencyName, candidates};
+}
+
+async function loadErollsConstituencyLinks(): Promise<{
+  links: ErollsConstituencyLink[];
+  hiddenFields: Record<string, string>;
+  cookieHeader: string;
+}> {
+  const response = await axios.get<string>(EROLLS_AC_LIST_URL, {
+    timeout: 30000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Accept-Language": "en-IN,en;q=0.9",
+    },
+  });
+
+  const $ = cheerio.load(response.data);
+  const links = getConstituencyLinksFromAcList($);
+  const hiddenFields = getHiddenFields($);
+  const rawCookies = response.headers["set-cookie"];
+  const cookieHeader = Array.isArray(rawCookies)
+    ? rawCookies.map((item) => item.split(";")[0]).join("; ")
+    : "";
+
+  return {links, hiddenFields, cookieHeader};
+}
+
+function findDistrictByConstituency(constituency: string): string {
+  const target = normalizeKey(constituency);
+  for (const [district, constituencies] of Object.entries(tnDistrictConstituencies)) {
+    for (const name of constituencies) {
+      if (normalizeKey(name) === target) {
+        return district;
+      }
+    }
+  }
+  return "Tamil Nadu";
+}
+
+async function scrapeErollsCandidatesForConstituency(constituency: string): Promise<ScrapedCandidate[]> {
+  const {links, hiddenFields, cookieHeader} = await loadErollsConstituencyLinks();
+  const target = links.find((item) => normalizeKey(item.constituency) === normalizeKey(constituency));
+  if (!target) {
+    return [];
+  }
+
+  const result = await scrapeErollsCandidatesByLink(target, hiddenFields, cookieHeader);
+  return result.candidates;
+}
+
 async function writeCandidateSnapshot(
   district: string,
   constituency: string,
@@ -278,6 +464,8 @@ async function writeCandidateSnapshot(
     for (const candidate of chunk) {
       const id = normalizeKey(`${constituencyKey}_${candidate.partyId}_${candidate.name}`);
       const ref = db.collection(CANDIDATES_COLLECTION).doc(id);
+      const symbolName = candidate.symbol ?? null;
+      const symbolAssetPath = resolveSymbolAssetPath(candidate.symbol);
       batch.set(ref, {
         id,
         district,
@@ -289,11 +477,13 @@ async function writeCandidateSnapshot(
         partyAbbreviation: candidate.partyAbbreviation,
         partyFlagUrl: partyFlags[candidate.partyId] ?? null,
         symbol: candidate.symbol ?? null,
+        symbolName,
+        symbolAssetPath,
         photoUrl: null,
         sourceUrl: candidate.sourceUrl,
         affidavitUrl: candidate.affidavitUrl ?? candidate.sourceUrl,
         goodThingsUrl: candidate.goodThingsUrl ?? candidate.sourceUrl,
-        source: "myneta",
+        source: "erolls",
         updatedAt: now,
       }, {merge: true});
     }
@@ -345,7 +535,12 @@ export const syncCandidates = onCall({timeoutSeconds: 120, memory: "512MiB"}, as
   }, {merge: true});
 
   try {
-    const candidates = await scrapeMynetaCandidates(constituency);
+    let candidates = await scrapeErollsCandidatesForConstituency(constituency);
+    let usedFallback = false;
+    if (candidates.length === 0) {
+      candidates = await scrapeMynetaCandidates(constituency);
+      usedFallback = true;
+    }
     const partyFlags = await loadPartyFlagMap(db);
     const count = await writeCandidateSnapshot(district, constituency, candidates, partyFlags);
 
@@ -354,7 +549,7 @@ export const syncCandidates = onCall({timeoutSeconds: 120, memory: "512MiB"}, as
       constituency,
       constituencyKey,
       status: "ready",
-      usedFallback: false,
+      usedFallback,
       candidateCount: count,
       lastSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -364,7 +559,7 @@ export const syncCandidates = onCall({timeoutSeconds: 120, memory: "512MiB"}, as
     return {
       synced: true,
       count,
-      usedFallback: false,
+      usedFallback,
     };
   } catch (error) {
     logger.error("Candidate sync failed", {district, constituency, error});
@@ -378,6 +573,196 @@ export const syncCandidates = onCall({timeoutSeconds: 120, memory: "512MiB"}, as
     }, {merge: true});
     throw new HttpsError("internal", "Could not sync candidates right now.");
   }
+});
+
+export const syncAllCandidates = onCall({timeoutSeconds: 540, memory: "1GiB"}, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Sign in required.");
+  }
+
+  const db = admin.firestore();
+  const partyFlags = await loadPartyFlagMap(db);
+  const {links, hiddenFields, cookieHeader} = await loadErollsConstituencyLinks();
+
+  const missingParties = new Set<string>();
+  const missingBySymbol = new Map<string, Set<string>>();
+  let totalCandidates = 0;
+  const syncedConstituencies: Array<{district: string; constituency: string; count: number}> = [];
+
+  for (const link of links) {
+    const {constituency, candidates} = await scrapeErollsCandidatesByLink(link, hiddenFields, cookieHeader);
+    const district = findDistrictByConstituency(constituency);
+    const count = await writeCandidateSnapshot(district, constituency, candidates, partyFlags);
+    totalCandidates += count;
+    syncedConstituencies.push({district, constituency, count});
+
+    const constituencyKey = normalizeKey(`${district}_${constituency}`);
+    await db.collection(CANDIDATE_SYNC_STATUS_COLLECTION).doc(constituencyKey).set({
+      district,
+      constituency,
+      constituencyKey,
+      status: "ready",
+      usedFallback: false,
+      candidateCount: count,
+      lastSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    for (const candidate of candidates) {
+      if (resolveSymbolAssetPath(candidate.symbol) != null) {
+        continue;
+      }
+      missingParties.add(candidate.partyName);
+      const symbolKey = (candidate.symbol ?? "unknown").trim() || "unknown";
+      const current = missingBySymbol.get(symbolKey) ?? new Set<string>();
+      current.add(candidate.partyName);
+      missingBySymbol.set(symbolKey, current);
+    }
+  }
+
+  const missingSymbols = Array.from(missingBySymbol.entries()).map(([symbolName, parties]) => ({
+    symbolName,
+    parties: Array.from(parties).sort(),
+  })).sort((a, b) => a.symbolName.localeCompare(b.symbolName));
+
+  await db.collection(CANDIDATE_SYMBOL_GAPS_COLLECTION).doc("latest").set({
+    totalConstituencies: links.length,
+    totalCandidates,
+    missingSymbols,
+    missingParties: Array.from(missingParties).sort(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+
+  logger.info("Bulk candidate sync complete", {
+    constituencies: links.length,
+    totalCandidates,
+    missingSymbols: missingSymbols.length,
+  });
+
+  return {
+    syncedConstituencies: links.length,
+    totalCandidates,
+    missingParties: Array.from(missingParties).sort(),
+    missingSymbols,
+    sample: syncedConstituencies.slice(0, 12),
+  };
+});
+
+type FinalJsonCandidateRow = {
+  ac_number?: string;
+  constituency?: string;
+  sl_no?: string;
+  candidate_name?: string;
+  party?: string;
+  symbol?: string;
+};
+
+async function deleteCollectionDocs(collectionName: string): Promise<number> {
+  const db = admin.firestore();
+  let deleted = 0;
+
+  while (true) {
+    const snapshot = await db.collection(collectionName).limit(400).get();
+    if (snapshot.empty) {
+      break;
+    }
+
+    const batch = db.batch();
+    for (const doc of snapshot.docs) {
+      batch.delete(doc.ref);
+      deleted += 1;
+    }
+    await batch.commit();
+  }
+
+  return deleted;
+}
+
+export const importFinalCandidatesJson = onRequest({timeoutSeconds: 540, memory: "1GiB"}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Use POST."});
+    return;
+  }
+
+  const payload = req.body as {rows?: FinalJsonCandidateRow[]; replace?: boolean} | FinalJsonCandidateRow[];
+  const rows = Array.isArray(payload) ? payload : (payload.rows ?? []);
+  const replace = Array.isArray(payload) ? true : payload.replace !== false;
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    res.status(400).json({error: "rows array is required."});
+    return;
+  }
+
+  const db = admin.firestore();
+  let deletedCount = 0;
+  if (replace) {
+    deletedCount = await deleteCollectionDocs(CANDIDATES_COLLECTION);
+  }
+
+  const validRows = rows.filter((row) => {
+    const name = (row.candidate_name ?? "").trim();
+    const constituency = (row.constituency ?? "").trim();
+    return name.length > 0 && constituency.length > 0;
+  });
+
+  let imported = 0;
+  for (let i = 0; i < validRows.length; i += 400) {
+    const chunk = validRows.slice(i, i + 400);
+    const batch = db.batch();
+
+    for (const row of chunk) {
+      const constituency = (row.constituency ?? "").trim();
+      const district = findDistrictByConstituency(constituency);
+      const partyName = (row.party ?? "Independent").trim() || "Independent";
+      const party = extractParty(partyName);
+      const symbolName = (row.symbol ?? "").trim() || null;
+      const constituencyKey = normalizeKey(`${district}_${constituency}`);
+      const name = (row.candidate_name ?? "").trim();
+      const id = normalizeKey(`${constituencyKey}_${party.id}_${name}`);
+      const ref = db.collection(CANDIDATES_COLLECTION).doc(id);
+
+      batch.set(ref, {
+        id,
+        district,
+        constituency,
+        constituencyKey,
+        acNumber: (row.ac_number ?? "").trim() || null,
+        slNo: (row.sl_no ?? "").trim() || null,
+        name,
+        partyName,
+        partyId: party.id,
+        partyAbbreviation: toAbbreviation(party.id),
+        symbol: symbolName,
+        symbolName,
+        symbolAssetPath: resolveSymbolAssetPath(symbolName ?? undefined),
+        source: "final_json",
+        sourceUrl: EROLLS_AC_LIST_URL,
+        affidavitUrl: "https://www.myneta.info/TamilNadu2026/",
+        goodThingsUrl: "https://www.myneta.info/TamilNadu2026/",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true});
+      imported += 1;
+    }
+
+    await batch.commit();
+  }
+
+  logger.info("Final JSON import complete", {
+    received: rows.length,
+    valid: validRows.length,
+    imported,
+    deletedCount,
+    replace,
+  });
+
+  res.status(200).json({
+    ok: true,
+    received: rows.length,
+    valid: validRows.length,
+    imported,
+    deletedCount,
+    replace,
+  });
 });
 
 const tnDistrictConstituencies: Record<string, string[]> = {

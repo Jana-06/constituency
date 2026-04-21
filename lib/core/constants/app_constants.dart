@@ -8,5 +8,6 @@ class AppConstants {
   static const firestoreParties = 'parties';
   static const firestoreCandidates = 'candidates';
   static const firestoreCandidateSyncStatus = 'candidate_sync_status';
+  static const firestoreCandidateSymbolGaps = 'candidate_symbol_gaps';
 }
 

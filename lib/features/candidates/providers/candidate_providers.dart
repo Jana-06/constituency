@@ -35,41 +35,13 @@ class CandidateSearchParams {
   int get hashCode => Object.hash(district, constituency, partyId);
 }
 
-final candidatesProvider = StreamProvider.family<List<CandidateProfile>, CandidateSearchParams>((ref, params) {
-  return ref.read(candidateRepositoryProvider).watchCandidates(
+final candidatesProvider = FutureProvider.family<List<CandidateProfile>, CandidateSearchParams>((ref, params) {
+  return ref.read(candidateRepositoryProvider).fetchLiveCandidates(
         district: params.district,
         constituency: params.constituency,
         partyId: params.partyId,
       );
 });
 
-final candidateSyncStatusProvider = StreamProvider.family<Map<String, dynamic>?, CandidateSearchParams>((ref, params) {
-  return ref.read(candidateRepositoryProvider).watchSyncStatus(
-        district: params.district,
-        constituency: params.constituency,
-      );
-});
-
-final candidateSyncControllerProvider = Provider<CandidateSyncController>((ref) {
-  return CandidateSyncController(ref.read(candidateRepositoryProvider));
-});
-
-class CandidateSyncController {
-  CandidateSyncController(this._repository);
-
-  final CandidateRepository _repository;
-
-  Future<void> sync({
-    required String district,
-    required String constituency,
-    bool force = false,
-  }) {
-    return _repository.syncCandidates(
-      district: district,
-      constituency: constituency,
-      force: force,
-    );
-  }
-}
 
 

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../../shared/models/poll.dart';
 import '../../../../shared/widgets/shimmer_box.dart';
@@ -9,30 +8,6 @@ import '../../providers/polls_provider.dart';
 
 class PollsScreen extends ConsumerWidget {
   const PollsScreen({super.key});
-
-  List<Poll> _fallbackPolls() {
-    final now = Timestamp.now();
-    return [
-      Poll(
-        id: 'demo_1',
-        question: 'Which Tamil Nadu governance area should get top priority in 2026?',
-        options: const ['Jobs', 'Water', 'Public Transport', 'Healthcare'],
-        votes: const {0: 168, 1: 132, 2: 104, 3: 95},
-        createdAt: now,
-        expiresAt: null,
-        constituency: 'all',
-      ),
-      Poll(
-        id: 'demo_2',
-        question: 'Should local constituency grievance camps be held every month?',
-        options: const ['Strongly Yes', 'Yes', 'No', 'Need More Data'],
-        votes: const {0: 245, 1: 121, 2: 33, 3: 58},
-        createdAt: now,
-        expiresAt: null,
-        constituency: 'all',
-      ),
-    ];
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -56,11 +31,8 @@ class PollsScreen extends ConsumerWidget {
           ),
         ),
         data: (polls) {
-          final useFallback = polls.isEmpty;
-          final effectivePolls = useFallback ? _fallbackPolls() : polls;
-
           final homeConstituency = (userData?['homeConstituency'] as String?)?.trim().toLowerCase();
-          final visiblePolls = effectivePolls.where((poll) {
+          final visiblePolls = polls.where((poll) {
             final scope = poll.constituency.trim().toLowerCase();
             return scope == 'all' || (homeConstituency != null && homeConstituency.isNotEmpty && scope == homeConstituency);
           }).toList();
@@ -68,7 +40,7 @@ class PollsScreen extends ConsumerWidget {
           if (visiblePolls.isEmpty) {
             return const Center(
               child: Text(
-                'No polls available for your constituency yet.',
+                'No live polls available for your constituency yet.',
                 style: TextStyle(color: Color(0xFF111111)),
               ),
             );
@@ -84,21 +56,12 @@ class PollsScreen extends ConsumerWidget {
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final poll = visiblePolls[index];
-              final locked = useFallback || poll.isClosed || votedIds.contains(poll.id);
+              final locked = poll.isClosed || votedIds.contains(poll.id);
 
               return _PollCard(
                 poll: poll,
                 locked: locked,
                 onVote: (selectedOption) async {
-                  if (useFallback) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Showing demo polls. Add Firestore polls for live voting.')),
-                      );
-                    }
-                    return;
-                  }
-
                   final uid = authUser?.uid;
                   if (uid == null) {
                     if (context.mounted) {
@@ -115,6 +78,7 @@ class PollsScreen extends ConsumerWidget {
                           selectedOption: selectedOption,
                           uid: uid,
                         );
+                    ref.invalidate(currentUserProvider);
 
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(

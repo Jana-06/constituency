@@ -32,24 +32,12 @@ class CandidateListScreen extends ConsumerStatefulWidget {
 }
 
 class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
+  static const String _affidavitRedirectUrl = 'https://www.myneta.info/TamilNadu2026/';
   final TextEditingController _messageController = TextEditingController();
   DocumentSnapshot<Map<String, dynamic>>? _lastDoc;
   bool _loadingEarlier = false;
-  bool _syncing = false;
-  bool _didInitialSync = false;
 
   String get _roomId => '${widget.district}_${widget.constituency}'.replaceAll(' ', '_').toLowerCase();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !_didInitialSync) {
-        _didInitialSync = true;
-        _syncCandidates();
-      }
-    });
-  }
 
   @override
   void dispose() {
@@ -59,22 +47,15 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final candidatesAsync = ref.watch(
-      candidatesProvider(
-        CandidateSearchParams(
-          district: widget.district,
-          constituency: widget.constituency,
-          partyId: widget.partyId,
-        ),
-      ),
-    );
-    final messagesAsync = ref.watch(constituencyMessagesProvider(_roomId));
     final params = CandidateSearchParams(
       district: widget.district,
       constituency: widget.constituency,
       partyId: widget.partyId,
     );
-    final syncStatusAsync = ref.watch(candidateSyncStatusProvider(params));
+    final candidatesAsync = ref.watch(
+      candidatesProvider(params),
+    );
+    final messagesAsync = ref.watch(constituencyMessagesProvider(_roomId));
     final party = widget.partyId == null ? null : ref.watch(partyByIdProvider(widget.partyId!)).value;
     final authUser = ref.watch(authStateProvider).value;
 
@@ -88,14 +69,8 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
         actions: [
           IconButton(
             tooltip: 'Refresh candidates',
-            onPressed: _syncing ? null : () => _syncCandidates(force: true),
-            icon: _syncing
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.sync_rounded),
+            onPressed: () => ref.invalidate(candidatesProvider(params)),
+            icon: const Icon(Icons.sync_rounded),
           ),
         ],
       ),
@@ -116,7 +91,7 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
                         Text(widget.district, style: Theme.of(context).textTheme.bodyMedium),
                         const SizedBox(height: 10),
                         Text(
-                          'Fetching candidates from the web…',
+                            'Loaded from live Tamil Nadu candidate records in Firestore.',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black87),
                         ),
                       ],
@@ -124,44 +99,6 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                syncStatusAsync.when(
-                  loading: () => const SizedBox.shrink(),
-                  error: (_, __) => const SizedBox.shrink(),
-                  data: (status) {
-                    if (status == null) return const SizedBox.shrink();
-                    final rawStatus = (status['status'] as String?) ?? 'ready';
-                    final fallback = status['usedFallback'] == true;
-                    final count = status['candidateCount'];
-                    final ts = status['lastSyncedAt'] as Timestamp?;
-                    final when = ts?.toDate();
-
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            Icon(
-                              rawStatus == 'failed'
-                                  ? Icons.error_outline_rounded
-                                  : rawStatus == 'syncing'
-                                      ? Icons.sync
-                                      : Icons.cloud_done_outlined,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                rawStatus == 'syncing'
-                                    ? 'Syncing live candidate data from Myneta...'
-                                    : 'Updated ${when == null ? 'just now' : '${when.day}/${when.month} ${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}'}${count == null ? '' : ' • $count candidates'}${fallback ? ' • fallback data' : ''}',
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black87),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
                 const SizedBox(height: 10),
                 candidatesAsync.when(
                   loading: () => const _CandidateLoading(),
@@ -174,7 +111,7 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
                           const Text('No data found — check back later'),
                           const SizedBox(height: 10),
                           FilledButton(
-                            onPressed: _syncing ? null : () => _syncCandidates(force: true),
+                            onPressed: () => ref.invalidate(candidatesProvider(params)),
                             child: const Text('Retry'),
                           ),
                         ],
@@ -194,8 +131,8 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
                               ),
                               const SizedBox(height: 12),
                               FilledButton.tonal(
-                                onPressed: _syncing ? null : () => _syncCandidates(force: true),
-                                child: const Text('Sync now'),
+                                onPressed: () => ref.invalidate(candidatesProvider(params)),
+                                child: const Text('Reload'),
                               ),
                             ],
                           ),
@@ -207,7 +144,7 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Tamil Nadu 2026 candidate list',
+                          'Tamil Nadu 2026 candidate list (database)',
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                 color: Colors.black,
                                 fontWeight: FontWeight.w800,
@@ -223,9 +160,9 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
                           ),
                           child: const Row(
                             children: [
-                              SizedBox(width: 32, child: Text('S.No', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.black))),
-                              Expanded(child: Text('Name', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.black))),
-                              SizedBox(width: 50, child: Text('Flag', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700, color: Colors.black))),
+                              SizedBox(width: 44, child: Text('S.No', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.black))),
+                              Expanded(child: Text('Name of candidate', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.black))),
+                              SizedBox(width: 92, child: Text('Symbol', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700, color: Colors.black))),
                             ],
                           ),
                         ),
@@ -233,11 +170,14 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
                         ...candidates.asMap().entries.map(
                           (entry) => Padding(
                             padding: const EdgeInsets.only(bottom: 10),
-                            child: _CandidateCard(
-                              serialNumber: entry.key + 1,
-                              candidate: entry.value,
-                              onTap: () => _openExternalLink(entry.value.affidavitUrl),
-                              onOpenGoodThings: () => _openExternalLink(entry.value.goodThingsUrl),
+                            child: AnimatedContainer(
+                              duration: Duration(milliseconds: 220 + (entry.key * 20)),
+                              curve: Curves.easeOut,
+                              child: _CandidateCard(
+                                serialNumber: entry.key + 1,
+                                candidate: entry.value,
+                                onTap: () => _openExternalLink(_affidavitRedirectUrl),
+                              ),
                             ),
                           ),
                         ),
@@ -357,25 +297,6 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
     );
   }
 
-  Future<void> _syncCandidates({bool force = false}) async {
-    setState(() => _syncing = true);
-    try {
-      await ref.read(candidateSyncControllerProvider).sync(
-            district: widget.district,
-            constituency: widget.constituency,
-            force: force,
-          );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Candidate sync failed: $error')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _syncing = false);
-      }
-    }
-  }
 
   Future<void> _sendMessage(User? authUser) async {
     final text = _messageController.text.trim();
@@ -441,13 +362,11 @@ class _CandidateCard extends StatelessWidget {
     required this.serialNumber,
     required this.candidate,
     required this.onTap,
-    required this.onOpenGoodThings,
   });
 
   final int serialNumber;
   final CandidateProfile candidate;
   final VoidCallback onTap;
-  final VoidCallback onOpenGoodThings;
 
   @override
   Widget build(BuildContext context) {
@@ -460,79 +379,36 @@ class _CandidateCard extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: CachedNetworkImage(
-                  imageUrl: candidate.photoUrl,
-                  width: 92,
-                  height: 92,
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) => Container(
-                    width: 92,
-                    height: 92,
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  ),
-                  errorWidget: (_, __, ___) => Container(
-                    width: 92,
-                    height: 92,
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    child: const Icon(Icons.person_rounded),
-                  ),
+              SizedBox(
+                width: 36,
+                child: Text(
+                  '$serialNumber',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: Colors.black,
+                      ),
                 ),
               ),
               const SizedBox(width: 12),
-                SizedBox(
-                  width: 28,
-                  child: Text(
-                    '$serialNumber',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: Colors.black,
-                        ),
-                  ),
-                ),
-                const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                      Text(
-                        candidate.name,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: Colors.black,
-                            ),
-                      ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            candidate.partyName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: Colors.black),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        Chip(label: Text(candidate.partyAbbreviation)),
-                        Chip(label: Text(candidate.constituency)),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
                     Text(
-                      'Police cases: ${candidate.policeCasesSummary}',
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black87),
+                      candidate.name,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black,
+                          ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
+                    Text(
+                      candidate.partyName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: Colors.black87),
+                    ),
+                    const SizedBox(height: 6),
                     Wrap(
                       spacing: 8,
                       children: [
@@ -541,38 +417,92 @@ class _CandidateCard extends StatelessWidget {
                           icon: const Icon(Icons.open_in_new_rounded, size: 16),
                           label: const Text('Affidavit'),
                         ),
-                        TextButton.icon(
-                          onPressed: onOpenGoodThings,
-                          icon: const Icon(Icons.thumb_up_alt_outlined, size: 16),
-                          label: const Text('Good things'),
-                        ),
                       ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               SizedBox(
-                width: 36,
+                width: 92,
                 child: Center(
-                  child: candidate.partyFlagUrl != null && candidate.partyFlagUrl!.isNotEmpty
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: CachedNetworkImage(
-                            imageUrl: candidate.partyFlagUrl!,
-                            width: 24,
-                            height: 24,
-                            fit: BoxFit.cover,
-                            errorWidget: (_, __, ___) => const Icon(Icons.flag, size: 18),
-                          ),
-                        )
-                      : const Icon(Icons.flag, size: 18),
+                  child: _CandidateSymbol(candidate: candidate),
                 ),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CandidateSymbol extends StatelessWidget {
+  const _CandidateSymbol({required this.candidate});
+
+  final CandidateProfile candidate;
+
+  @override
+  Widget build(BuildContext context) {
+    final symbolAssetPath = candidate.symbolAssetPath;
+    if (symbolAssetPath != null && symbolAssetPath.isNotEmpty) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.asset(
+              symbolAssetPath,
+              width: 40,
+              height: 40,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => const Icon(Icons.flag, size: 20),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            candidate.symbolName ?? 'Symbol',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: 10,
+                  color: Colors.black87,
+                ),
+          ),
+        ],
+      );
+    }
+
+    if (candidate.partyFlagUrl != null && candidate.partyFlagUrl!.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: CachedNetworkImage(
+          imageUrl: candidate.partyFlagUrl!,
+          width: 24,
+          height: 24,
+          fit: BoxFit.cover,
+          errorWidget: (context, url, error) => const Icon(Icons.flag, size: 18),
+        ),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.flag, size: 18),
+        const SizedBox(height: 4),
+        Text(
+          candidate.symbolName ?? 'Symbol pending',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontSize: 10,
+                color: Colors.black87,
+              ),
+        ),
+      ],
     );
   }
 }

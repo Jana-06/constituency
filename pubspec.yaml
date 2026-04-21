@@ -71,21 +71,24 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
+    - lib/tn_candidates.json
     - .env
     - assets/app_icon.png
+    - assets/logo.png
     - assets/clg_logo.png
-    - assets/animations/LOGO_Loading_Animation_video_ready.json
+    - assets/symbols/
+    - assets/animations/loading.json
 
 flutter_native_splash:
   color: '#FFFFFF'
-  image: assets/app_icon.png
+  image: assets/logo.png
   android_12:
     color: '#FFFFFF'
-    image: assets/app_icon.png
+    image: assets/logo.png
 
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: assets/app_icon.png
+  image_path: assets/logo.png
   adaptive_icon_background: '#FFF8F2'
-  adaptive_icon_foreground: assets/app_icon.png
+  adaptive_icon_foreground: assets/logo.png

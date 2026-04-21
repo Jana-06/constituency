@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../models/candidate_profile.dart';
+import 'symbol_assets.dart';
 
 class CandidateRepository {
   CandidateRepository(this._firestore, this._functions);
@@ -24,107 +25,70 @@ class CandidateRepository {
     'tvk': _PartyMeta('tvk', 'TVK', 'Tamizhaga Vetri Kazhagam', 'Vijay', Color(0xFFE91E63)),
     'mdmk': _PartyMeta('mdmk', 'MDMK', 'Marumalarchi Dravida Munnetra Kazhagam', 'Vaiko / Durai Vaiko', Color(0xFF5E35B1)),
     'dmdk': _PartyMeta('dmdk', 'DMDK', 'Desiya Murpokku Dravida Kazhagam', 'Premalatha Vijayakanth', Color(0xFF6D4C41)),
+    'ind': _PartyMeta('ind', 'IND', 'Independent', 'Independent candidate', Color(0xFF455A64)),
   };
 
-  Stream<List<CandidateProfile>> watchCandidates({
+  Future<List<CandidateProfile>> fetchLiveCandidates({
     required String district,
     required String constituency,
     String? partyId,
-  }) {
-    final key = _normalize('${district}_$constituency');
+  }) async {
+    final constituencyKey = _normalize('${district}_$constituency');
     Query<Map<String, dynamic>> query = _firestore
         .collection(AppConstants.firestoreCandidates)
-        .where('constituencyKey', isEqualTo: key);
+        .where('constituencyKey', isEqualTo: constituencyKey);
 
     if (partyId != null && partyId.isNotEmpty) {
       query = query.where('partyId', isEqualTo: partyId);
     }
 
-    return query.snapshots().map((snapshot) {
-      final items = snapshot.docs
-          .map((doc) {
-            final data = doc.data();
-            final id = (data['partyId'] as String?) ?? 'ind';
-            final meta = _partyMeta[id] ?? _partyMeta['inc']!;
-            final patched = <String, dynamic>{
-              ...data,
-              'id': data['id'] ?? doc.id,
-              'leader': data['leader'] ?? meta.leader,
-              'affidavitUrl': data['affidavitUrl'] ?? data['sourceUrl'] ?? _buildAffidavitUrl(data['name']?.toString() ?? 'Candidate', constituency),
-              'goodThingsUrl': data['goodThingsUrl'] ?? data['sourceUrl'] ?? _buildGoodThingsUrl(data['name']?.toString() ?? 'Candidate', district, constituency),
-              'policeCasesSummary': data['policeCasesSummary'] ?? _buildPoliceCasesSummary(meta.shortName, data['name']?.toString() ?? 'Candidate', constituency),
-              'goodThings': data['goodThings'] ?? _buildGoodThings(meta.shortName, data['name']?.toString() ?? 'Candidate', district, constituency),
-              'affidavitSummary': data['affidavitSummary'] ?? _buildAffidavitSummary(meta.shortName, data['name']?.toString() ?? 'Candidate', district, constituency),
-            };
-            return CandidateProfile.fromFirestore(
-              patched,
-              accentColor: meta.accent,
-              fallbackDistrict: district,
-              fallbackConstituency: constituency,
-            );
-          })
-          .toList(growable: false)
-        ..sort((a, b) => a.partyAbbreviation.compareTo(b.partyAbbreviation));
+    var snapshot = await query.get();
+    if (snapshot.docs.isEmpty) {
+      await _triggerCandidateSync(district: district, constituency: constituency);
+      snapshot = await query.get();
+    }
+    final mapped = snapshot.docs.map((doc) {
+      final data = doc.data();
+      final resolvedPartyId = (data['partyId'] as String?) ?? 'ind';
+      final meta = _partyMeta[resolvedPartyId] ?? _partyMeta['ind']!;
+      final symbolName = data['symbolName'] as String? ?? data['symbol'] as String?;
 
-      return items;
-    });
+      return CandidateProfile.fromFirestore(
+        {
+          ...data,
+          'id': (data['id'] as String?) ?? doc.id,
+          'leader': (data['leader'] as String?) ?? meta.leader,
+          'symbolName': symbolName,
+          'symbolAssetPath': (data['symbolAssetPath'] as String?) ?? resolveSymbolAssetPath(symbolName),
+        },
+        accentColor: meta.accent,
+        fallbackDistrict: district,
+        fallbackConstituency: constituency,
+      );
+    }).toList(growable: false);
+
+    mapped.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return mapped;
   }
 
-  Future<void> syncCandidates({
+  Future<void> _triggerCandidateSync({
     required String district,
     required String constituency,
-    bool force = false,
   }) async {
-    final callable = _functions.httpsCallable('syncCandidates');
-    await callable.call(<String, dynamic>{
-      'district': district,
-      'constituency': constituency,
-      'force': force,
-    });
-  }
-
-  Stream<Map<String, dynamic>?> watchSyncStatus({
-    required String district,
-    required String constituency,
-  }) {
-    final key = _normalize('${district}_$constituency');
-    return _firestore.collection(AppConstants.firestoreCandidateSyncStatus).doc(key).snapshots().map((doc) => doc.data());
+    try {
+      await _functions.httpsCallable('syncCandidates').call(<String, dynamic>{
+        'district': district,
+        'constituency': constituency,
+      });
+    } catch (_) {
+      // If sync fails, caller still gets whatever is currently in Firestore.
+    }
   }
 
   String _normalize(String value) {
     return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_').replaceAll(RegExp(r'^_+|_+$'), '');
   }
 
-  String _buildPoliceCasesSummary(String party, String name, String constituency) {
-    final score = (name.length + constituency.length + party.length) % 3;
-    if (score == 0) {
-      return 'No public police cases surfaced in the current search snapshot. Please verify the latest affidavit before voting.';
-    }
-    return '$score public case reference(s) surfaced in the current web snapshot. Open the source link to inspect the latest affidavit and legal disclosures.';
-  }
-
-  List<String> _buildGoodThings(String party, String name, String district, String constituency) {
-    return [
-      '$party campaign presence in $district',
-      'Public-facing candidate profile for $constituency',
-      'Strong local outreach and voter communication',
-      '$name is linked to currently visible campaign references',
-    ];
-  }
-
-  String _buildAffidavitSummary(String party, String name, String district, String constituency) {
-    return 'Latest affidavit snapshot for $name in $constituency ($district) is pulled from live search results when available. The app shows public-source summaries and links to the original report for verification.';
-  }
-
-  String _buildAffidavitUrl(String name, String constituency) {
-    final q = Uri.encodeComponent('$name affidavit $constituency myneta');
-    return 'https://www.google.com/search?q=$q';
-  }
-
-  String _buildGoodThingsUrl(String name, String district, String constituency) {
-    final q = Uri.encodeComponent('$name development work $constituency $district tamil nadu');
-    return 'https://www.google.com/search?q=$q';
-  }
 }
 
 class _PartyMeta {
@@ -136,5 +100,4 @@ class _PartyMeta {
   final String leader;
   final Color accent;
 }
-
 

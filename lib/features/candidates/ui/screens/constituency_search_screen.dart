@@ -14,7 +14,6 @@ class ConstituencySearchScreen extends ConsumerStatefulWidget {
 
 class _ConstituencySearchScreenState extends ConsumerState<ConstituencySearchScreen> {
   final TextEditingController _queryController = TextEditingController();
-  String? _selectedDistrict;
   _ConstituencyChoice? _selectedChoice;
 
   @override
@@ -39,10 +38,12 @@ class _ConstituencySearchScreenState extends ConsumerState<ConstituencySearchScr
     final query = _queryController.text.trim().toLowerCase();
 
     final results = _allChoices.where((item) {
-      final textMatches = query.isEmpty || '${item.constituency} ${item.district}'.toLowerCase().contains(query);
-      final districtMatches = _selectedDistrict == null || _selectedDistrict == item.district;
-      return textMatches && districtMatches;
+      return query.isEmpty || '${item.constituency} ${item.district}'.toLowerCase().contains(query);
     }).toList(growable: false);
+    final suggestions = query.isEmpty ? const <_ConstituencyChoice>[] : results.take(6).toList(growable: false);
+    final hasSuggestions = suggestions.isNotEmpty;
+    final hasSelection = _selectedChoice != null;
+    final expandedHeight = 238.0 + (hasSuggestions ? 46.0 : 0.0) + (hasSelection ? 62.0 : 0.0);
 
     return Scaffold(
       body: CustomScrollView(
@@ -50,7 +51,7 @@ class _ConstituencySearchScreenState extends ConsumerState<ConstituencySearchScr
           SliverAppBar(
             pinned: true,
             floating: true,
-            expandedHeight: 238,
+            expandedHeight: expandedHeight,
             backgroundColor: Colors.transparent,
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
@@ -99,16 +100,45 @@ class _ConstituencySearchScreenState extends ConsumerState<ConstituencySearchScr
                                   ),
                           ),
                         ),
+                        if (suggestions.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: 38,
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: suggestions
+                                    .map(
+                                      (item) => Padding(
+                                        padding: const EdgeInsets.only(right: 8),
+                                        child: ActionChip(
+                                          avatar: const Icon(Icons.search_rounded, size: 16),
+                                          label: Text('${item.constituency} (${item.district})'),
+                                          onPressed: () {
+                                            _queryController.text = item.constituency;
+                                            setState(() => _selectedChoice = item);
+                                            _openCandidates(item);
+                                          },
+                                        ),
+                                      ),
+                                    )
+                                    .toList(growable: false),
+                              ),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 10),
                         if (_selectedChoice != null)
                           Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            constraints: const BoxConstraints(minHeight: 58),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
                               color: Colors.white,
                               border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
                             ),
+
                             child: Row(
                               children: [
                                 const Icon(Icons.check_circle, size: 18, color: AppTheme.green),
@@ -116,10 +146,17 @@ class _ConstituencySearchScreenState extends ConsumerState<ConstituencySearchScr
                                 Expanded(
                                   child: Text(
                                     'Selected: ${_selectedChoice!.constituency} (${_selectedChoice!.district})',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
                                   ),
                                 ),
                                 TextButton(
+                                  style: TextButton.styleFrom(
+                                    minimumSize: const Size(54, 34),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
                                   onPressed: () => _openCandidates(_selectedChoice!),
                                   child: const Text('Open'),
                                 ),
@@ -134,43 +171,7 @@ class _ConstituencySearchScreenState extends ConsumerState<ConstituencySearchScr
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-            sliver: SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'District filter',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ChoiceChip(
-                        label: const Text('All'),
-                        selected: _selectedDistrict == null,
-                        onSelected: (_) => setState(() => _selectedDistrict = null),
-                      ),
-                      ...sortedDistricts.map(
-                        (district) => ChoiceChip(
-                          label: Text(district),
-                          selected: _selectedDistrict == district,
-                          onSelected: (_) => setState(() => _selectedDistrict = district),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
             sliver: SliverToBoxAdapter(
               child: Text(
                 'Constituencies (${results.length})',
@@ -197,7 +198,7 @@ class _ConstituencySearchScreenState extends ConsumerState<ConstituencySearchScr
               padding: const EdgeInsets.symmetric(horizontal: 16),
               sliver: SliverList.separated(
                 itemCount: results.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                separatorBuilder: (context, index) => const SizedBox(height: 10),
                 itemBuilder: (context, index) {
                   final item = results[index];
                   final selected = _selectedChoice == item;
