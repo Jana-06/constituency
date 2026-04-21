@@ -1,14 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/firebase/firebase_providers.dart';
 import '../data/candidate_repository.dart';
 import '../models/candidate_profile.dart';
 
 final candidateRepositoryProvider = Provider<CandidateRepository>((ref) {
-  return CandidateRepository(
-    ref.watch(firestoreProvider),
-    ref.watch(functionsProvider),
-  );
+  return CandidateRepository();
 });
 
 class CandidateSearchParams {

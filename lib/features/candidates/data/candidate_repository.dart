@@ -100,4 +100,3 @@ class _PartyMeta {
   final String leader;
   final Color accent;
 }
-

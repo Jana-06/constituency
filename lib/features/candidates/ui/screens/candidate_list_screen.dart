@@ -91,7 +91,7 @@ class _CandidateListScreenState extends ConsumerState<CandidateListScreen> {
                         Text(widget.district, style: Theme.of(context).textTheme.bodyMedium),
                         const SizedBox(height: 10),
                         Text(
-                            'Loaded from live Tamil Nadu candidate records in Firestore.',
+                          'Loaded from live Tamil Nadu candidate records in Firestore.',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black87),
                         ),
                       ],
